@@ -70,26 +70,10 @@ FlowRAM supports deployment on a **6-DoF UR5 arm with Robotiq gripper**, achievi
 </div>
 
 
-
-
 ## 🚧 TODO
-- [ ] 📝 Formatting code for release
+- [X] 📝 Formatting code for release
 - [ ] 📦 Open-sourcing pretrained weights
 - [ ] ⏳ Currently working on other projects, will release when time permits.  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
