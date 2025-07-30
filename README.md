@@ -5,9 +5,11 @@
 <h4 align="center"><sup>1</sup>National Key Laboratory of Human-Machine Hybrid Augmented Intelligence, Xi’an Jiaotong University</h4>
 <h4 align="center"><sup>2</sup>University of Illinois at Chicago</h4>
 <h4 align="center">
-  <a href="https://github.com/YourGithubRepo"><strong>Project Page</strong></a>
+  <a href="https://sanmumumu.github.io/FlowRAM/"><strong>Project Page</strong></a>
   |
-  <a href="https://arxiv.org/pdf/2506.16201"><strong>arXiv</strong></a>
+  <a href="https://arxiv.org/pdf/2506.16201"><strong>ArXiv</strong></a>
+  |
+  <a href="https://blog.csdn.net/weixin_45751396/article/details/149784481?spm=1001.2014.3001.5502"><strong>Blog (In Chinese)</strong></a>
 </h4>
 <div align="center">
   <img src="asserts\framework.png" alt="FlowRAM Framework" width="90%">
