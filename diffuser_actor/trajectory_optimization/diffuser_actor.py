@@ -24,10 +24,10 @@ from diffuser_actor.utils.utils import (
     quaternion_to_matrix
 )
 
+
 class DiffuserActor(nn.Module):
 
     def __init__(self,
-                 model_cfg,
                  backbone="clip",
                  image_size=(256, 256),
                  embedding_dim=60,
@@ -47,7 +47,6 @@ class DiffuserActor(nn.Module):
         self._relative = relative
         self.use_instruction = use_instruction
         self.encoder = Encoder(
-            model_cfg=model_cfg,
             backbone=backbone,
             image_size=image_size,
             embedding_dim=embedding_dim,
@@ -63,6 +62,17 @@ class DiffuserActor(nn.Module):
             nhist=nhist,
             lang_enhanced=lang_enhanced
         )
+        # self.position_noise_scheduler = DDPMScheduler(
+        #     num_train_timesteps=diffusion_timesteps,
+        #     beta_schedule="scaled_linear",
+        #     prediction_type="epsilon"
+        # )
+        # self.rotation_noise_scheduler = DDPMScheduler(
+        #     num_train_timesteps=diffusion_timesteps,
+        #     # beta_schedule="squaredcos_cap_v2",
+        #     beta_schedule="scaled_linear",
+        #     prediction_type="epsilon"
+        # )
         self.noise_scheduler = FlowMatchEulerDiscreteScheduler(
             num_train_timesteps=diffusion_timesteps,
         )
@@ -70,10 +80,10 @@ class DiffuserActor(nn.Module):
         self.gripper_loc_bounds = torch.tensor(gripper_loc_bounds)
 
     def encode_inputs(self, visible_rgb, visible_pcd, instruction,
-                      curr_gripper, sigmas, noisy_trajectory):
+                      curr_gripper, sqrt_alpha, noisy_trajectory):
         # Compute visual features/positional embeddings at different scales
-        context_feats, context = self.encoder.encode_images(
-            visible_rgb, visible_pcd
+        context_feats, context, rgb_features = self.encoder.encode_images(
+            visible_rgb, visible_pcd, sqrt_alpha, noisy_trajectory
         )
         # Encode instruction (B, 53, F)
         instr_feats = None
@@ -92,11 +102,18 @@ class DiffuserActor(nn.Module):
             curr_gripper, context_feats, context
         )
 
+        # # FPS on visual features (N, B, F) and (B, N, F, 2)
+        # fps_feats, fps_pos = self.encoder.run_fps(
+        #     context_feats.transpose(0, 1),
+        #     self.encoder.relative_pe_layer(context)
+        # )
         # FPS on visual features (N, B, F) and (B, N, F, 2)
-        fps_feats, fps_pos = self.encoder.run_fps(
-            context_feats.transpose(0, 1),
-            self.encoder.relative_pe_layer(context)
+        fps_feats, fps_pos = self.encoder.run_local(
+            rgb_features, visible_pcd, sqrt_alpha, noisy_trajectory
         )
+        fps_feats = fps_feats.transpose(0, 1)
+        fps_pos = self.encoder.relative_pe_layer(fps_pos)
+
         return (
             context_feats, context,  # contextualized visual features
             instr_feats,  # language features
@@ -127,6 +144,10 @@ class DiffuserActor(nn.Module):
         )
 
     def conditional_sample(self, condition_data, condition_mask, fixed_inputs):
+        # self.position_noise_scheduler.set_timesteps(self.n_steps)
+        # self.rotation_noise_scheduler.set_timesteps(self.n_steps)
+
+
         self.noise_scheduler.set_timesteps(64) # self.n_steps
 
         # Random trajectory, conditioned on start-end
@@ -135,6 +156,21 @@ class DiffuserActor(nn.Module):
             dtype=condition_data.dtype,
             device=condition_data.device
         )
+            # # Noisy condition data
+            # noise_t = torch.ones(
+            #     (len(condition_data),), device=condition_data.device
+            # ).long().mul(self.position_noise_scheduler.timesteps[0])
+            # noise_pos = self.position_noise_scheduler.add_noise(
+            #     condition_data[..., :3], noise[..., :3], noise_t
+            # )
+            # noise_rot = self.rotation_noise_scheduler.add_noise(
+            #     condition_data[..., 3:9], noise[..., 3:9], noise_t
+            # )
+            # noisy_condition_data = torch.cat((noise_pos, noise_rot), -1)
+            # trajectory = torch.where(
+            #     condition_mask, noisy_condition_data, noise
+            # )
+        
         trajectory = noise
         # Iterative denoising
         timesteps = self.noise_scheduler.timesteps
@@ -145,6 +181,14 @@ class DiffuserActor(nn.Module):
                 fixed_inputs
             )
             out = out[-1]  # keep only last layer's output
+            # pos = self.position_noise_scheduler.step(
+            #     out[..., :3], t, trajectory[..., :3]
+            # ).prev_sample
+            # rot = self.rotation_noise_scheduler.step(
+            #     out[..., 3:9], t, trajectory[..., 3:9]
+            # ).prev_sample
+            # trajectory = torch.cat((pos, rot), -1)
+
             trajectory = self.noise_scheduler.step(
                 out[..., :9], t, trajectory
             ).prev_sample
@@ -318,6 +362,11 @@ class DiffuserActor(nn.Module):
         gt_trajectory = self.convert_rot(gt_trajectory)
         curr_gripper = self.convert_rot(curr_gripper)
 
+        # # Prepare inputs
+        # fixed_inputs = self.encode_inputs(
+        #     rgb_obs, pcd_obs, instruction, curr_gripper
+        # )
+
         # Condition on start-end pose
         cond_data = torch.zeros_like(gt_trajectory)
         cond_mask = torch.zeros_like(cond_data)
@@ -326,13 +375,39 @@ class DiffuserActor(nn.Module):
         # Sample noise
         noise = torch.randn(gt_trajectory.shape, device=gt_trajectory.device)
 
-        # Sample a random timestep
+        # # Sample a random timestep
+        # timesteps = torch.randint(
+        #     0,
+        #     self.position_noise_scheduler.config.num_train_timesteps,
+        #     (len(noise),), device=noise.device
+        # ).long()
+
+        # alphas_cumprod = self.position_noise_scheduler.alphas_cumprod
+        # sqrt_alpha = (1 - alphas_cumprod) ** 0.5
+        # sqrt_alpha = [sqrt_alpha[t] for t in timesteps]
+        # sqrt_alpha = torch.tensor(sqrt_alpha, device=gt_trajectory.device).view(-1, 1)
+        # # Add noise to the clean trajectories
+        # pos = self.position_noise_scheduler.add_noise(
+        #     gt_trajectory[..., :3], noise[..., :3],
+        #     timesteps
+        # )
+        # rot = self.rotation_noise_scheduler.add_noise(
+        #     gt_trajectory[..., 3:9], noise[..., 3:9],
+        #     timesteps
+        # )
+        # noisy_trajectory = torch.cat((pos, rot), -1)
+        # noisy_trajectory[cond_mask] = cond_data[cond_mask]  # condition
+        # assert not cond_mask.any()
+
+
+        # Sample a random timestep for each image
         # for weighting schemes where we sample timesteps non-uniformly
         u= torch.sigmoid(torch.randn(len(gt_trajectory), device=gt_trajectory.device))
         indices = (u * self.noise_scheduler.config.num_train_timesteps).long()
         timesteps = self.noise_scheduler.timesteps.to(device=gt_trajectory.device)[indices]
 
         # Add noise according to flow matching.
+        # sigmas = get_sigmas(timesteps, n_dim=gt_trajectory.ndim, dtype=gt_trajectory.dtype)
         sigmas = self.noise_scheduler.sigmas.to(device=gt_trajectory.device)[indices]
         sigmas = sigmas.view(-1, 1, 1)
         noisy_trajectory = sigmas * noise + (1.0 - sigmas) * gt_trajectory
@@ -341,7 +416,6 @@ class DiffuserActor(nn.Module):
         fixed_inputs = self.encode_inputs(
             rgb_obs, pcd_obs, instruction, curr_gripper, sigmas, noisy_trajectory
         )
-        
         # Predict the noise residual
         pred = self.policy_forward_pass(
             noisy_trajectory, timesteps, fixed_inputs
@@ -355,9 +429,8 @@ class DiffuserActor(nn.Module):
         for layer_pred in pred:
             trans = layer_pred[..., :3]
             rot = layer_pred[..., 3:9]
-            target = noise - gt_trajectory
-            trans_l = 100 * F.mse_loss(trans, target[..., :3], reduction='mean')
-            rot_l = 10 * F.mse_loss(rot, target[..., 3:9], reduction='mean')
+            trans_l = 30 * F.l1_loss(trans, noise[..., :3], reduction='mean')
+            rot_l = 10 * F.l1_loss(rot, noise[..., 3:9], reduction='mean')
             trans_loss = trans_loss + trans_l
             rot_loss = rot_loss + rot_l
 

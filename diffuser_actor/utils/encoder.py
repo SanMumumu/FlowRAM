@@ -1,7 +1,9 @@
+# import dgl.geometry as dgl_geo
 import einops
 import torch
 from torch import nn
 from torch.nn import functional as F
+import torchvision.transforms as T
 from torchvision.ops import FeaturePyramidNetwork
 
 from .position_encodings import RotaryPositionEncoding3D
@@ -9,14 +11,12 @@ from .layers import FFWRelativeCrossAttentionModule, ParallelAttention
 from .resnet import load_resnet50, load_resnet18
 from .clip import load_clip
 from openpoints.models.layers import furthest_point_sample as farthest_point_sample
-from PointMamba.part_segmentation.models.pt_mamba import MixerModelForSegmentation
-
+from .tools.point_utils import filter_and_sample_points
 
 
 class Encoder(nn.Module):
 
     def __init__(self,
-                 model_cfg,
                  backbone="clip",
                  image_size=(256, 256),
                  embedding_dim=60,
@@ -43,6 +43,7 @@ class Encoder(nn.Module):
             self.backbone, self.normalize = load_clip()
         for p in self.backbone.parameters():
             p.requires_grad = False
+        self.resize_transform = T.Resize(256, interpolation=T.InterpolationMode.BILINEAR)
 
         # Semantic visual features at different scales
         self.feature_pyramid = FeaturePyramidNetwork(
@@ -53,7 +54,7 @@ class Encoder(nn.Module):
             # at 1/4 resolution (32x32)
             # Fine RGB features are the 1st layer of the feature pyramid
             # at 1/2 resolution (64x64)
-            self.coarse_feature_map = ['res2', 'res1', 'res1', 'res1']
+            self.coarse_feature_map = ['res5', 'res1', 'res1', 'res1']
             self.downscaling_factor_pyramid = [4, 2, 2, 2]
         elif self.image_size == (256, 256):
             # Coarse RGB features are the 3rd layer of the feature pyramid
@@ -147,23 +148,17 @@ class Encoder(nn.Module):
         gripper_pos = self.relative_pe_layer(gripper[..., :3])
         context_pos = self.relative_pe_layer(context)
 
-        gripper_feats = einops.rearrange(
-            gripper_feats, 'b npt c -> npt b c'
-        )
-        context_feats = einops.rearrange(
-            context_feats, 'b npt c -> npt b c'
-        )
+        gripper_feats = torch.permute(gripper_feats, (1, 0, 2))
+        context_feats = torch.permute(context_feats, (1, 0, 2))
         gripper_feats = self.gripper_context_head(
             query=gripper_feats, value=context_feats,
             query_pos=gripper_pos, value_pos=context_pos
         )[-1]
-        gripper_feats = einops.rearrange(
-            gripper_feats, 'nhist b c -> b nhist c'
-        )
+        gripper_feats = torch.permute(gripper_feats, (1, 0, 2))
 
         return gripper_feats, gripper_pos
 
-    def encode_images(self, rgb, pcd):
+    def encode_images(self, rgb, pcd, sqrt_alpha, noisy_trajectory):
         """
         Compute visual features/pos embeddings at different scales.
 
@@ -178,45 +173,50 @@ class Encoder(nn.Module):
         num_cameras = rgb.shape[1]
 
         # Pass each view independently through backbone
-        rgb = einops.rearrange(rgb, "bt ncam c h w -> (bt ncam) c h w")
+        rgb = rgb.reshape(-1, *rgb.shape[2:])
         rgb = self.normalize(rgb)
         rgb_features = self.backbone(rgb)
 
         # Pass visual features through feature pyramid network
         rgb_features = self.feature_pyramid(rgb_features)
 
+        rgb_features = rgb_features[self.feature_map_pyramid[0]] # flow-8 都是256的
+        rgb_features = self.resize_transform(rgb_features)
+        # bounds = torch.tensor([-1.5624, -1.3012, -1.9700, 1.3990,  1.1460,  6.0384], device=pcd.device, dtype=torch.float32)
+        bounds = torch.tensor([-1, -1, -1, 1,  1,  1], device=pcd.device, dtype=torch.float32)
+        pcd_pyramid, rgb_feats_pyramid = filter_and_sample_points(rgb_features, pcd, sqrt_alpha=sqrt_alpha, noisy_trajectory=noisy_trajectory,
+                                                                  num_points=4096, bs=pcd.shape[0], bounds=bounds)
         # Treat different cameras separately
-        pcd = einops.rearrange(pcd, "bt ncam c h w -> (bt ncam) c h w")
+        # pcd = pcd.reshape(-1, *pcd.shape[2:])
 
-        rgb_feats_pyramid = []
-        pcd_pyramid = []
-        for i in range(self.num_sampling_level):
-            # Isolate level's visual features
-            rgb_features_i = rgb_features[self.coarse_feature_map[i]]
+        # rgb_feats_pyramid = []
+        # pcd_pyramid = []
+        # for i in range(self.num_sampling_level):
+        #     # Isolate level's visual features
+        #     rgb_features_i = rgb_features[self.feature_map_pyramid[i]]
 
-            # Interpolate xy-depth to get the locations for this level
-            feat_h, feat_w = rgb_features_i.shape[-2:]
-            pcd_i = F.interpolate(
-                pcd,
-                (feat_h, feat_w),
-                mode='bilinear'
-            )
+        #     # Interpolate xy-depth to get the locations for this level
+        #     feat_h, feat_w = rgb_features_i.shape[-2:]
+        #     pcd_i = F.interpolate(
+        #         pcd,
+        #         (feat_h, feat_w),
+        #         mode='bilinear'
+        #     )
 
-            # Merge different cameras for clouds, separate for rgb features
-            h, w = pcd_i.shape[-2:]
-            pcd_i = einops.rearrange(
-                pcd_i,
-                "(bt ncam) c h w -> bt (ncam h w) c", ncam=num_cameras
-            )
-            rgb_features_i = einops.rearrange(
-                rgb_features_i,
-                "(bt ncam) c h w -> bt (ncam h w) c", ncam=num_cameras
-            )
+        #     # Merge different cameras for clouds, separate for rgb features
+        #     pcd_i = einops.rearrange(
+        #         pcd_i,
+        #         "(bt ncam) c h w -> bt (ncam h w) c", ncam=num_cameras
+        #     )
+        #     rgb_features_i = einops.rearrange(
+        #         rgb_features_i,
+        #         "(bt ncam) c h w -> bt (ncam h w) c", ncam=num_cameras
+        #     )
 
-            rgb_feats_pyramid.append(rgb_features_i)
-            pcd_pyramid.append(pcd_i)
+        #     rgb_feats_pyramid.append(rgb_features_i)
+        #     pcd_pyramid.append(pcd_i)
 
-        return rgb_feats_pyramid[0], pcd_pyramid[0]
+        return rgb_feats_pyramid[0], pcd_pyramid[0], rgb_features
 
     def encode_instruction(self, instruction):
         """
@@ -242,6 +242,7 @@ class Encoder(nn.Module):
         # context_features (Np, B, F)
         # context_pos (B, Np, F, 2)
         # outputs of analogous shape, with smaller Np
+
         npts, bs, ch = context_features.shape
 
         # Sample points with FPS
@@ -264,6 +265,15 @@ class Encoder(nn.Module):
             context_pos, 1, expanded_sampled_inds
         )
         return sampled_context_features, sampled_context_pos
+
+    def run_local(self, rgb_features, pcd, sqrt_alpha, noisy_trajectory):
+        rgb_features = rgb_features[self.coarse_feature_map[0]]
+        rgb_features = self.resize_transform(rgb_features)
+        bounds = torch.tensor([-1.5624, -1.3012, -1.9700, 1.3990,  1.1460,  6.0384], device=pcd.device, dtype=torch.float32)
+        pcd_pyramid, rgb_feats_pyramid = filter_and_sample_points(rgb_features, pcd, sqrt_alpha=sqrt_alpha, noisy_trajectory=noisy_trajectory,
+                                                                  num_points=1024, bs=pcd.shape[0], bounds=bounds)
+
+        return rgb_feats_pyramid, pcd_pyramid
 
     def vision_language_attention(self, feats, instr_feats):
         feats, _ = self.vl_attention[0](
