@@ -113,7 +113,7 @@ def filter_and_sample_points(image_features, pcd, sqrt_alpha, noisy_trajectory, 
     feature = feature.permute(0, 2, 1)
 
     distances = torch.norm(xyz - noisy_trajectory[:, :, :3], dim=-1)
-    # sqrt_alpha = torch.clamp(sqrt_alpha, min=0.3).squeeze(1)
+    sqrt_alpha = torch.clamp(sqrt_alpha, min=0.3).squeeze(1)
     mask = (distances < 1.2) # 1.3 
     filtered_pcd = xyz * mask.unsqueeze(-1)
     filtered_feature = feature * mask.unsqueeze(-1)
