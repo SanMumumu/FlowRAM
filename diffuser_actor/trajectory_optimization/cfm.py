@@ -121,9 +121,9 @@ class DiffuserActor(nn.Module):
             fps_feats, fps_pos  # sampled visual features
         )
     def logit_normal_sampling(self, num_samples, m=0, s=1):
-        # 从正态分布 N(m, s) 中采样
+        # Sampling from a normal distribution N(m, s)
         u = np.random.normal(m, s, num_samples)
-        # 通过 logistic 函数将其映射到 [0, 1] 区间
+        # Map it to the [0, 1] interval through the logistic function
         t_samples = 1 / (1 + np.exp(-u))
         return t_samples
 
@@ -417,15 +417,15 @@ class DiffuserActor(nn.Module):
         sigmas = sigmas.view(-1, 1, 1)
         noisy_trajectory = sigmas * noise + (1.0 - sigmas) * gt_trajectory
 
-        # # 假设 sigmas 是一个递减的张量
+        # # Assume sigmas is a decreasing tensor
         # sigmas = self.noise_scheduler.sigmas.to(device=gt_trajectory.device)
-        # # 生成与 sigmas 数量匹配的 Logit-Normal 采样时间步 (范围在 0-1 之间)
-        # num_samples = gt_trajectory.shape[0]  # 与轨迹数目匹配
+        # # Generates Logit-Normal sampling time steps matching the number of sigmas (range 0-1)
+        # num_samples = gt_trajectory.shape[0]  # Match the number of tracks
         # logit_normal_times = self.logit_normal_sampling(num_samples)
-        # # 将时间步映射为索引，并确保索引在 0 和 len(sigmas) - 1 之间
+        # # Map time steps to indices, ensuring that the indices are between 0 and len(sigmas) - 1
         # indices = (logit_normal_times * (len(sigmas) - 1)).astype(int)
         # indices = torch.clamp(torch.tensor(indices), 0, len(sigmas) - 1).to(gt_trajectory.device)
-        # # 根据 Logit-Normal 采样选择相应的 sigmas
+        # # Select the corresponding sigmas according to Logit-Normal sampling
         # sigmas_sampled = sigmas[indices]
 
 
