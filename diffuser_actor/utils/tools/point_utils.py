@@ -33,12 +33,12 @@ def process_xyz_with_fps_and_nearest(xyz_list, feature_list, pcd, pcd_feat, sqrt
 
     for i, (xyz, features) in enumerate(zip(xyz_list, feature_list)):
         if xyz.shape[0] == 0 or xyz.shape[0] < num_points or sqrt_alpha[i]>0.9:
-            # 如果xyz为空或点数少于num_points，直接对pcd进行最远点采样
+            # If xyz is empty or the number of points is less than num_points, directly sample the farthest point of pcd
             sampled_indices = farthest_point_sample(pcd[i].contiguous().unsqueeze(0), num_points).long()
             sampled_xyz = index_points(pcd[i].unsqueeze(0), sampled_indices).squeeze(0)
             sampled_features = index_points(pcd_feat[i].unsqueeze(0), sampled_indices).squeeze(0)
         else:
-            # 如果点数大于num_points，使用FPS进行采样
+            # If the number of points is greater than num_points, use FPS for sampling
             if xyz.shape[0] > num_points:
                 sampled_indices = farthest_point_sample(xyz.unsqueeze(0), num_points).long()
                 sampled_xyz = index_points(xyz.unsqueeze(0), sampled_indices).squeeze(0)
@@ -50,7 +50,7 @@ def process_xyz_with_fps_and_nearest(xyz_list, feature_list, pcd, pcd_feat, sqrt
         processed_xyz_list.append(sampled_xyz)
         processed_feature_list.append(sampled_features)
 
-    # 将列表转换为tensor，并返回 (batch_size, num_points, C)
+    # Convert a list to a tensor and return (batch_size, num_points, C)
     processed_xyz = torch.stack(processed_xyz_list, dim=0)
     processed_feature = torch.stack(processed_feature_list, dim=0)
 
