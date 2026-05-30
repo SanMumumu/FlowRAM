@@ -312,6 +312,91 @@
     </div>
   </section>
 
+  <section class="section">
+    <div class="container is-max-desktop">
+      <h2 class="title is-3">Failure Cases</h2>
+      <p>
+        We analyze all 95 failed trials in the real-world Generalization Setting. Three primary failure causes are identified:
+        <strong>severe occlusion during local refinement</strong> (43/95, 45.3%),
+        <strong>depth sensor artifact or missing point cloud</strong> (28/95, 29.5%), and
+        <strong>kinematic singularity or planner-level reachability issue</strong> (24/95, 25.3%).
+        Representative failure videos are shown below.
+      </p>
+      <br>
+      <div class="columns is-centered">
+        <div class="column">
+          <div class="content">
+            <h4 class="title is-size-5" style="text-align: center;">Grasp Black Ring (Failed)</h4>
+            <video autoplay controls muted loop playsinline height="100%">
+              <source src="./static/videos/fail_black_ring.mp4" type="video/mp4">
+            </video>
+          </div>
+        </div>
+
+        <div class="column">
+          <div class="content">
+            <h4 class="title is-size-5" style="text-align: center;">Novel View Generalization (Failed)</h4>
+            <video autoplay controls muted loop playsinline height="100%">
+              <source src="./static/videos/fail_novel_view.mp4" type="video/mp4">
+            </video>
+          </div>
+        </div>
+      </div>
+
+      <div class="columns is-centered">
+        <div class="column">
+          <div class="content">
+            <h4 class="title is-size-5" style="text-align: center;">Stack Blocks Novel View (Failed)</h4>
+            <video autoplay controls muted loop playsinline height="100%">
+              <source src="./static/videos/fail_stack_blocks.mp4" type="video/mp4">
+            </video>
+          </div>
+        </div>
+
+        <div class="column">
+          <div class="content">
+            <h4 class="title is-size-5" style="text-align: center;">Stack 3 Blocks (Failed)</h4>
+            <video autoplay controls muted loop playsinline height="100%">
+              <source src="./static/videos/fail_static_3blocks.mp4" type="video/mp4">
+            </video>
+          </div>
+        </div>
+      </div>
+
+      <div class="columns is-centered">
+        <div class="column">
+          <div class="content">
+            <h4 class="title is-size-5" style="text-align: center;">Manipulation Failure</h4>
+            <video autoplay controls muted loop playsinline height="100%">
+              <source src="./static/videos/fail_general.mp4" type="video/mp4">
+            </video>
+          </div>
+        </div>
+
+        <div class="column">
+          <div class="content">
+            <h4 class="title is-size-5" style="text-align: center;">Grab Banana Novel View (Failed)</h4>
+            <video autoplay controls muted loop playsinline height="100%">
+              <source src="./static/videos/fail_banana.mp4" type="video/mp4">
+            </video>
+          </div>
+        </div>
+      </div>
+
+      <div class="columns is-centered">
+        <div class="column is-half">
+          <div class="content">
+            <h4 class="title is-size-5" style="text-align: center;">Real-World Failure Demo</h4>
+            <video autoplay controls muted loop playsinline height="100%">
+              <source src="./static/videos/fail_vid.mp4" type="video/mp4">
+            </video>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
   <section class="hero is-light is-small">
     <div class="container is-max-desktop">
       <h2 class="title is-3">Results</h2>
